@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sipandu - Sistem Pengajuan Nomor Surat</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        
+        .admin-badge {
+            position: absolute;
+            bottom: -8px;
+            right: -8px;
+            background-color: #ef4444;
+            color: white;
+            font-size: 10px;
+            font-weight: 800;
+            padding: 2px 6px;
+            border-radius: 9999px;
+            border: 2px solid white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.8);
+            z-index: 300;
+            backdrop-filter: blur(4px);
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+        }
+
+        .action-btn {
+            @apply p-2 rounded-lg transition-all duration-200 flex items-center justify-center;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen p-4 md:p-8 text-slate-900">
+
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p id="loadingText" class="font-bold text-slate-700">Memproses Data...</p>
+    </div>
+
+    <div class="max-w-6xl mx-auto">
+        <header class="mb-8 flex flex-col md:flex-row justify-between items-center gap-4">
+            <div class="text-center md:text-left">
+                <h1 class="text-3xl font-extrabold text-blue-700 tracking-tight tracking-tighter">SURAT KELUAR</h1>
+                <p class="text-slate-500 font-medium text-sm italic">Pengajuan Nomor Surat</p>
+                <div id="connectionStatus" class="text-[10px] mt-2 flex items-center justify-center md:justify-start gap-1 text-slate-400 font-semibold uppercase">
+                    <span id="statusDot" class="w-2 h-2 rounded-full bg-slate-300 animate-pulse"></span> <span id="statusText">Menghubungkan...</span>
+                </div> 
+            </div>
+            <div class="flex gap-2">
+                <div class="relative">
+                    <button id="btnLoginAdmin" onclick="window.toggleAdminLogin()" class="relative bg-white border border-slate-300 text-slate-600 px-5 py-2.5 rounded-xl hover:bg-slate-100 transition-all shadow-sm font-semibold flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                        Akses Admin
+                        <span id="adminNotificationBadge" class="hidden admin-badge">0</span>
+                    </button>
+                    <button id="btnLogoutAdmin" onclick="window.logoutAdmin()" class="hidden bg-rose-600 text-white px-5 py-2.5 rounded-xl hover:bg-rose-700 transition-all shadow-md font-semibold">
+                        Keluar Panel
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <div class="flex flex-col gap-8">
+            <!-- FORM SECTION -->
+            <section id="formContainer">
+                <div class="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 md:p-8">
+                    <h2 class="text-xl font-bold mb-6 flex items-center gap-3 text-slate-800 border-b border-slate-100 pb-5">
+                        <div class="p-2 bg-blue-100 text-blue-600 rounded-lg">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                        </div>
+                        <span id="formTitleText">Form Pengajuan Surat</span>
+                    </h2>
+                    
+                    <form id="suratForm" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <input type="hidden" id="editId" value="">
+                        
+                        <!-- Field Nomor Surat (Hanya Tampil di Mode Admin/Edit) -->
+                        <div id="nomorFieldContainer" class="md:col-span-2 hidden bg-blue-50 p-4 rounded-2xl border border-blue-100">
+                            <label class="block text-xs font-bold text-blue-600 uppercase tracking-wider mb-1.5 ml-1">Nomor Surat Resmi (Diisi Admin)</label>
+                            <input type="text" id="nomorResmi" placeholder="Contoh: 001/SK/ADM/V/2024" class="w-full px-4 py-3.5 rounded-xl border border-blue-200 focus:ring-2 focus:ring-blue-500 outline-none font-mono font-bold text-blue-800">
+                        </div>
+
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">Nama Pemohon</label>
+                                <input type="text" id="pemohon" required placeholder="Nama Lengkap" class="w-full px-4 py-3.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">Kategori Surat</label>
+                                <select id="kategori" required class="w-full px-4 py-3.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 bg-white outline-none">
+                                    <option value="SK">Surat Keputusan (SK)</option>
+                                    <option value="ST">Surat Tugas (ST)</option>
+                                    <option value="ND">Nota Dinas (ND)</option>
+                                    <option value="UND">Undangan (UND)</option>
+                                    <option value="MOA">Memorandum (MOA)</option>
+                                    <option value="ST">Surat Perjanjian Kerja Sama (SPKS)</option>
+                                    <option value="SP">Surat Pengantar (SP)</option>
+                                    <option value="LAIN">Lainnya</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">Perihal</label>
+                                <input type="text" id="perihal" required placeholder="Tujuan pembuatan surat" class="w-full px-4 py-3.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none">
+                            </div>
+                        </div>
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">Tujuan Surat</label>
+                                <input type="text" id="tujuan" required placeholder="Instansi / Pihak Tujuan" class="w-full px-4 py-3.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">Tanggal Surat</label>
+                                <input type="date" id="tanggal" required class="w-full px-4 py-3.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">File Lampiran</label>
+                                <div class="flex flex-col gap-2">
+                                    <input type="file" id="lampiran" accept="image/*,.pdf" class="w-full text-sm text-slate-500 border border-slate-200 rounded-xl p-2 bg-slate-50">
+                                    <div id="filePreview" class="hidden flex items-center gap-2 p-2 bg-emerald-50 border border-emerald-100 rounded-lg">
+                                        <span class="text-emerald-600 text-xs font-bold uppercase">Sudah ada file:</span>
+                                        <a id="fileLink" href="#" target="_blank" class="text-blue-600 text-xs underline truncate max-w-[150px]">Lihat File</a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="md:col-span-2 flex gap-3 mt-4">
+                            <button type="submit" id="submitBtn" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-2xl transition-all shadow-lg flex justify-center items-center gap-2">
+                                <span id="submitBtnText">Kirim Pengajuan</span>
+                            </button>
+                            <button type="button" id="cancelEditBtn" onclick="window.resetForm()" class="hidden bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold px-8 py-4 rounded-2xl transition-all">
+                                Batal
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <!-- PENDING SECTION (ADMIN ONLY) -->
+            <section id="pendingSection" class="hidden">
+                <div class="bg-amber-50 rounded-3xl shadow-sm border border-amber-200 overflow-hidden">
+                    <div class="p-6 bg-amber-100/50 border-b border-amber-200 flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <div class="p-2 bg-amber-200 text-amber-700 rounded-lg">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                            </div>
+                            <h2 class="text-lg font-bold text-amber-800">Menunggu Persetujuan</h2>
+                        </div>
+                        <p class="text-[10px] text-amber-600 font-bold uppercase italic">Klik tombol biru untuk proses nomor</p>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead class="bg-amber-100/50 text-amber-700 text-[10px] font-bold uppercase tracking-widest border-b border-amber-200">
+                                <tr>
+                                    <th class="px-6 py-4">Data Pemohon</th>
+                                    <th class="px-6 py-4">Perihal</th>
+                                    <th class="px-6 py-4 text-center">Proses</th>
+                                </tr>
+                            </thead>
+                            <tbody id="pendingTableBody" class="divide-y divide-amber-100"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- DATABASE TABLE -->
+            <section>
+                <div class="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div class="p-6 bg-slate-50/50 flex flex-col md:flex-row justify-between items-center gap-4 border-b">
+                        <div>
+                            <h2 class="text-xl font-bold text-slate-800">Arsip Surat Keluar</h2>
+                            <p class="text-slate-400 text-xs">Riwayat pengajuan dan nomor Surat</p>
+                        </div>
+                        <div class="flex gap-2">
+                             <button onclick="window.exportToExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                EXCEL
+                            </button>
+                            <div id="counter" class="bg-blue-50 text-blue-700 text-[10px] font-extrabold px-4 py-2.5 rounded-xl border border-blue-100 uppercase">0 DATA</div>
+                        </div>
+                    </div>
+                    
+                    <div class="p-4 bg-slate-50/50 border-b">
+                        <div class="flex flex-col md:flex-row gap-3">
+                            <input type="text" id="searchInput" oninput="window.updateUI()" placeholder="Cari data..." class="flex-1 px-4 py-3 border border-slate-200 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-blue-500">
+                            <select id="filterKategori" onchange="window.updateUI()" class="w-full md:w-48 px-4 py-3 border border-slate-200 rounded-2xl text-sm bg-white">
+                                <option value="SK">Surat Keputusan (SK)</option>
+                                    <option value="ST">Surat Tugas (ST)</option>
+                                    <option value="ND">Nota Dinas (ND)</option>
+                                    <option value="UND">Undangan (UND)</option>
+                                    <option value="MOA">Memorandum (MOA)</option>
+                                    <option value="ST">Surat Perjanjian Kerja Sama (SPKS)</option>
+                                    <option value="SP">Surat Pengantar (SP)</option>
+                                    <option value="LAIN">Lainnya</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left min-w-[900px]">
+                            <thead class="bg-slate-50 text-slate-500 text-[10px] uppercase font-bold tracking-widest border-b">
+                                <tr>
+                                    <th class="px-6 py-5 text-center">No</th>
+                                    <th class="px-6 py-5">Nomor Surat</th>
+                                    <th class="px-6 py-5">Pemohon & Perihal</th>
+                                    <th class="px-6 py-5 text-center">Status</th>
+                                    <th class="px-6 py-5 text-center">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody id="allSuratTableBody" class="divide-y divide-slate-100"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <!-- MODAL KONFIRMASI -->
+    <div id="confirmModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[250] hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-[2rem] w-full max-w-sm p-8 shadow-2xl text-center">
+            <div id="confirmIcon" class="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 bg-blue-50 text-blue-600 text-3xl">❓</div>
+            <h3 id="confirmTitle" class="text-xl font-bold mb-2 text-slate-800">Konfirmasi</h3>
+            <p id="confirmText" class="text-slate-500 text-sm mb-8 px-4">Apakah Anda yakin?</p>
+            <div class="grid grid-cols-2 gap-4">
+                <button onclick="window.closeConfirmModal()" class="py-4 bg-slate-100 rounded-2xl font-bold text-slate-600">Tidak</button>
+                <button id="btnConfirmAction" class="py-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg">Ya</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- PIN ADMIN MODAL -->
+    <div id="loginModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-[2rem] w-full max-w-sm p-10 shadow-2xl">
+            <h3 class="text-2xl font-bold text-center mb-8">Akses Admin</h3>
+            <input type="password" id="pinInput" maxlength="3" placeholder="···" class="w-full text-center text-5xl font-mono tracking-widest py-6 border-2 border-slate-100 rounded-3xl focus:border-blue-500 outline-none mb-8 bg-slate-50">
+            <div class="grid grid-cols-2 gap-4">
+                <button onclick="window.closeModal()" class="py-4 bg-slate-100 rounded-2xl font-bold text-slate-600">Batal</button>
+                <button onclick="window.verifyPin()" class="py-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg">Masuk</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- TOAST -->
+    <div id="toast" class="fixed bottom-8 right-8 bg-slate-900 text-white px-8 py-5 rounded-3xl shadow-2xl translate-y-32 opacity-0 transition-all duration-500 z-[300] flex items-center gap-4">
+        <span id="toastIcon">✅</span>
+        <p id="toastMsg" class="font-bold text-sm">Berhasil!</p>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
+        import { getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
+
+        // KONFIGURASI
+        const CLOUDINARY_CLOUD_NAME = "dkxehjgu0";
+        const CLOUDINARY_UPLOAD_PRESET = "belanja_pakaian";
+        const SECURITY_PIN = "000";
+        
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'sipandu-stable-v1';
+        
+        // PATH SESUAI SECURITY RULES: /artifacts/{appId}/public/data/surat_keluar
+        const getCollPath = () => ['artifacts', appId, 'public', 'data', 'surat_keluar'];
+        const getCollectionRef = () => collection(db, ...getCollPath());
+        const getDocRef = (docId) => doc(db, ...getCollPath(), docId);
+
+        let isAdmin = false;
+        let databaseSurat = [];
+        let unsubscribeData = null;
+
+        // AUTHENTICATION GUARD
+        const initAuth = async () => {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Auth error:", error);
+                document.getElementById('statusText').innerText = "Gagal Terkoneksi";
+            }
+        };
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                document.getElementById('statusDot').className = 'w-2 h-2 rounded-full bg-emerald-500';
+                document.getElementById('statusText').innerText = "Online";
+                listenToData();
+            } else {
+                if (unsubscribeData) unsubscribeData();
+            }
+        });
+
+        initAuth();
+
+        const listenToData = () => {
+            if (unsubscribeData) unsubscribeData();
+            
+            unsubscribeData = onSnapshot(getCollectionRef(), (snapshot) => {
+                databaseSurat = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+                    .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+                window.updateUI();
+            }, (error) => {
+                console.error("Firestore Fetch Error:", error);
+                window.showToast("Terjadi kendala koneksi data", true);
+            });
+        };
+
+        // --- CLOUDINARY ---
+        const uploadToCloudinary = async (file) => {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+            const resp = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`, {
+                method: 'POST',
+                body: formData
+            });
+            const data = await resp.json();
+            return data.secure_url;
+        };
+
+        // --- UI LOGIC ---
+        window.showToast = (msg, isError = false) => {
+            const t = document.getElementById('toast');
+            document.getElementById('toastMsg').innerText = msg;
+            document.getElementById('toastIcon').innerText = isError ? '❌' : '✅';
+            t.classList.remove('translate-y-32', 'opacity-0');
+            t.classList.toggle('bg-rose-600', isError);
+            t.classList.toggle('bg-slate-900', !isError);
+            setTimeout(() => t.classList.add('translate-y-32', 'opacity-0'), 3000);
+        };
+
+        window.askConfirmation = ({ title, text, icon, onConfirm }) => {
+            document.getElementById('confirmTitle').innerText = title;
+            document.getElementById('confirmText').innerText = text;
+            document.getElementById('confirmIcon').innerHTML = icon || '❓';
+            document.getElementById('btnConfirmAction').onclick = () => {
+                onConfirm();
+                window.closeConfirmModal();
+            };
+            document.getElementById('confirmModal').classList.remove('hidden');
+        };
+
+        window.closeConfirmModal = () => document.getElementById('confirmModal').classList.add('hidden');
+        window.toggleAdminLogin = () => { document.getElementById('loginModal').classList.remove('hidden'); document.getElementById('pinInput').focus(); };
+        window.closeModal = () => document.getElementById('loginModal').classList.add('hidden');
+
+        window.verifyPin = () => {
+            if (document.getElementById('pinInput').value === SECURITY_PIN) {
+                isAdmin = true;
+                document.getElementById('btnLoginAdmin').classList.add('hidden');
+                document.getElementById('btnLogoutAdmin').classList.remove('hidden');
+                document.getElementById('nomorFieldContainer').classList.remove('hidden');
+                window.closeModal();
+                window.updateUI();
+                window.showToast("Akses Admin Aktif");
+            } else {
+                window.showToast("PIN Salah!", true);
+                document.getElementById('pinInput').value = "";
+            }
+        };
+
+        window.logoutAdmin = () => {
+            isAdmin = false;
+            document.getElementById('btnLoginAdmin').classList.remove('hidden');
+            document.getElementById('btnLogoutAdmin').classList.add('hidden');
+            document.getElementById('nomorFieldContainer').classList.add('hidden');
+            window.resetForm();
+            window.updateUI();
+        };
+
+        // SVGs as Strings
+        const ICONS = {
+            eye: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
+            edit: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>',
+            trash: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>',
+            clip: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.51a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>'
+        };
+
+        window.updateUI = () => {
+            const term = (document.getElementById('searchInput').value || "").toLowerCase();
+            const filterKat = document.getElementById('filterKategori').value;
+
+            const filtered = databaseSurat.filter(s => {
+                const matchText = `${s.nomorResmi || ''} ${s.pemohon || ''} ${s.perihal || ''}`.toLowerCase().includes(term);
+                const matchKat = filterKat === 'ALL' || s.kategori === filterKat;
+                return matchText && matchKat;
+            });
+
+            document.getElementById('counter').innerText = `${filtered.length} DATA`;
+
+            const pending = databaseSurat.filter(s => s.status === 'pending');
+            const badge = document.getElementById('adminNotificationBadge');
+            badge.innerText = pending.length;
+            badge.classList.toggle('hidden', pending.length === 0);
+
+            if (isAdmin && pending.length > 0) {
+                document.getElementById('pendingSection').classList.remove('hidden');
+                document.getElementById('pendingTableBody').innerHTML = pending.map(s => `
+                    <tr class="text-xs">
+                        <td class="px-6 py-4 font-bold text-slate-700 uppercase">${s.pemohon}</td>
+                        <td class="px-6 py-4 text-slate-500">${s.perihal}</td>
+                        <td class="px-6 py-4 text-center">
+                            <button onclick="window.loadToForm('${s.id}')" class="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold shadow hover:bg-blue-700 transition-all mx-auto flex items-center gap-1">
+                                ${ICONS.edit} PROSES
+                            </button>
+                        </td>
+                    </tr>
+                `).join('');
+            } else {
+                document.getElementById('pendingSection').classList.add('hidden');
+            }
+
+            const mainBody = document.getElementById('allSuratTableBody');
+            mainBody.innerHTML = filtered.map((s, idx) => `
+                <tr class="text-xs hover:bg-slate-50 transition-colors">
+                    <td class="px-6 py-5 text-center text-slate-300 font-mono">${filtered.length - idx}</td>
+                    <td class="px-6 py-5 font-bold font-mono text-blue-700">
+                        ${s.nomorResmi ? s.nomorResmi : '<span class="text-amber-500 italic">PENDING</span>'}
+                    </td>
+                    <td class="px-6 py-5">
+                        <div class="font-bold text-slate-700">${s.pemohon}</div>
+                        <div class="text-[10px] text-slate-400 italic">${s.perihal}</div>
+                    </td>
+                    <td class="px-6 py-5 text-center">
+                        <span class="px-3 py-1 rounded-full text-[9px] font-bold ${
+                            s.status === 'approved' ? 'bg-emerald-50 text-emerald-600' : 
+                            s.status === 'rejected' ? 'bg-rose-50 text-rose-600' : 'bg-amber-50 text-amber-600'
+                        }">${s.status.toUpperCase()}</span>
+                    </td>
+                    <td class="px-6 py-5">
+                        <div class="flex justify-center items-center gap-2">
+                            ${s.lampiranUrl ? `
+                                <a href="${s.lampiranUrl}" target="_blank" title="Lihat Lampiran" class="action-btn bg-blue-50 text-blue-600 hover:bg-blue-100">
+                                    ${ICONS.clip}
+                                </a>
+                            ` : ''}
+                            
+                            ${(isAdmin || s.status === 'pending') ? `
+                                <button onclick="window.loadToForm('${s.id}')" title="Edit Data" class="action-btn bg-slate-100 text-slate-600 hover:bg-slate-200">
+                                    ${ICONS.edit}
+                                </button>
+                            ` : ''}
+
+                            ${isAdmin ? `
+                                <button onclick="window.confirmDelete('${s.id}')" title="Hapus Data" class="action-btn bg-rose-50 text-rose-500 hover:bg-rose-100">
+                                    ${ICONS.trash}
+                                </button>
+                            ` : ''}
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+        };
+
+        // --- CRUD ACTIONS ---
+        window.resetForm = () => {
+            document.getElementById('suratForm').reset();
+            document.getElementById('editId').value = "";
+            document.getElementById('cancelEditBtn').classList.add('hidden');
+            document.getElementById('submitBtnText').innerText = "Kirim Pengajuan";
+            document.getElementById('formTitleText').innerText = "Form Pengajuan Surat";
+            document.getElementById('filePreview').classList.add('hidden');
+            if (!isAdmin) document.getElementById('nomorFieldContainer').classList.add('hidden');
+            document.getElementById('tanggal').valueAsDate = new Date();
+        };
+
+        window.loadToForm = (id) => {
+            const s = databaseSurat.find(item => item.id === id);
+            if (!s) return;
+
+            // Admin can edit anything, Pemohon can only edit pending status
+            if (!isAdmin && s.status !== 'pending') {
+                return window.showToast("Data sudah diproses, tidak bisa diedit", true);
+            }
+
+            window.askConfirmation({
+                title: isAdmin ? 'Proses Pengajuan?' : 'Edit Pengajuan?',
+                text: isAdmin ? 'Muat data ini untuk penomoran resmi?' : 'Muat data kembali untuk diperbaiki?',
+                icon: isAdmin ? ICONS.edit : ICONS.eye,
+                onConfirm: () => {
+                    document.getElementById('editId').value = s.id;
+                    document.getElementById('pemohon').value = s.pemohon;
+                    document.getElementById('kategori').value = s.kategori;
+                    document.getElementById('perihal').value = s.perihal;
+                    document.getElementById('tujuan').value = s.tujuan;
+                    document.getElementById('tanggal').value = s.tanggalRaw;
+                    document.getElementById('nomorResmi').value = s.nomorResmi || "";
+                    
+                    if (s.lampiranUrl) {
+                        const preview = document.getElementById('filePreview');
+                        const link = document.getElementById('fileLink');
+                        link.href = s.lampiranUrl;
+                        preview.classList.remove('hidden');
+                    } else {
+                        document.getElementById('filePreview').classList.add('hidden');
+                    }
+
+                    if (isAdmin) document.getElementById('nomorFieldContainer').classList.remove('hidden');
+                    document.getElementById('submitBtnText').innerText = isAdmin ? "Simpan & Setujui" : "Simpan Perubahan";
+                    document.getElementById('formTitleText').innerText = isAdmin ? "Proses Penomoran Surat" : "Edit Pengajuan Saya";
+                    document.getElementById('cancelEditBtn').classList.remove('hidden');
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                }
+            });
+        };
+
+        document.getElementById('suratForm').onsubmit = async (e) => {
+            e.preventDefault();
+            if (!auth.currentUser) return window.showToast("Sesi tidak aktif, muat ulang halaman", true);
+            
+            const loading = document.getElementById('loadingOverlay');
+            const editId = document.getElementById('editId').value;
+            loading.style.display = 'flex';
+            
+            try {
+                let currentFileUrl = null;
+                const file = document.getElementById('lampiran').files[0];
+                if (file) {
+                    document.getElementById('loadingText').innerText = "Upload Lampiran...";
+                    currentFileUrl = await uploadToCloudinary(file);
+                }
+
+                const payload = {
+                    pemohon: document.getElementById('pemohon').value,
+                    kategori: document.getElementById('kategori').value,
+                    perihal: document.getElementById('perihal').value,
+                    tujuan: document.getElementById('tujuan').value,
+                    tanggalRaw: document.getElementById('tanggal').value,
+                    updatedAt: serverTimestamp()
+                };
+
+                if (currentFileUrl) payload.lampiranUrl = currentFileUrl;
+
+                if (isAdmin) {
+                    payload.nomorResmi = document.getElementById('nomorResmi').value;
+                    if (payload.nomorResmi) payload.status = 'approved';
+                }
+
+                if (editId) {
+                    await updateDoc(getDocRef(editId), payload);
+                    window.showToast("Data Berhasil Diperbarui");
+                } else {
+                    payload.status = 'pending';
+                    payload.createdAt = serverTimestamp();
+                    await addDoc(getCollectionRef(), payload);
+                    window.showToast("Pengajuan Berhasil Dikirim");
+                }
+                
+                window.resetForm();
+            } catch (err) {
+                console.error(err);
+                window.showToast("Gagal memproses data", true);
+            } finally {
+                loading.style.display = 'none';
+            }
+        };
+
+        window.confirmDelete = (id) => {
+            window.askConfirmation({
+                title: 'Hapus Data?',
+                text: 'Data akan dihapus permanen dari sistem.',
+                icon: ICONS.trash,
+                onConfirm: async () => {
+                    await deleteDoc(getDocRef(id));
+                    window.showToast("Data Dihapus", true);
+                }
+            });
+        };
+
+        window.exportToExcel = () => {
+            if (databaseSurat.length === 0) return window.showToast("Data kosong", true);
+            const ws = XLSX.utils.json_to_sheet(databaseSurat.map(s => ({
+                'Nomor': s.nomorResmi || 'PENDING',
+                'Pemohon': s.pemohon,
+                'Kategori': s.kategori,
+                'Perihal': s.perihal,
+                'Status': s.status,
+                'Tujuan': s.tujuan,
+                'Tanggal': s.tanggalRaw
+            })));
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "SIPANDU");
+            XLSX.writeFile(wb, `ARSIP_SIPANDU_${new Date().toLocaleDateString()}.xlsx`);
+        };
+
+        document.getElementById('tanggal').valueAsDate = new Date();
+    </script>
+</body>
+</html>
